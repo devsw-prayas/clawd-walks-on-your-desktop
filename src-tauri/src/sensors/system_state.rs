@@ -108,7 +108,7 @@ fn detect_spotify_playing() -> bool {
                         && title != "Spotify Free"
                         && title != "Spotify Premium"
                     {
-                        FOUND.store(true, std::sync::atomic::Ordering::SeqCst);
+                        FOUND.store(true, Ordering::SeqCst);
                         return windows::core::BOOL(0);
                     }
                 }
@@ -142,13 +142,18 @@ fn detect_spotify_playing() -> bool {
     unsafe {
         let _ = EnumWindows(Some(enum_callback), windows::Win32::Foundation::LPARAM(0));
     }
-    FOUND.load(std::sync::atomic::Ordering::SeqCst)
+    FOUND.load(Ordering::SeqCst)
 }
 
-fn count_claude_instances() -> (u32, bool) {
+fn count_tool_instances(tool: &str) -> (u32, bool) {
     use windows::Win32::System::Diagnostics::ToolHelp::{
         CreateToolhelp32Snapshot, Process32FirstW, Process32NextW, PROCESSENTRY32W,
         TH32CS_SNAPPROCESS,
+    };
+
+    let process_name = match tool {
+        "opencode" => "opencode.exe",
+        _ => "claude.exe",
     };
 
     let mut total: u32 = 0;
@@ -174,7 +179,7 @@ fn count_claude_instances() -> (u32, bool) {
                     .to_string_lossy()
                     .into_owned();
 
-                if name.eq_ignore_ascii_case("claude.exe") {
+                if name.eq_ignore_ascii_case(process_name) {
                     total += 1;
                 }
 
@@ -186,7 +191,7 @@ fn count_claude_instances() -> (u32, bool) {
         let _ = windows::Win32::Foundation::CloseHandle(snap);
     }
 
-    let desktop_running = check_claude_desktop_window();
+    let desktop_running = check_desktop_window(tool);
     let cli_count = if desktop_running && total > 5 {
         total.saturating_sub(6)
     } else if desktop_running {
@@ -198,12 +203,18 @@ fn count_claude_instances() -> (u32, bool) {
     (cli_count, desktop_running)
 }
 
-fn check_claude_desktop_window() -> bool {
+fn check_desktop_window(tool: &str) -> bool {
     use windows::core::w;
     use windows::Win32::UI::WindowsAndMessaging::FindWindowW;
 
+    let title = match tool {
+        "claude-cli" | "claude-app" => w!("Claude"),
+        "opencode" => w!("OC"),
+        _ => w!("Claude"),
+    };
+
     unsafe {
-        if let Ok(hwnd) = FindWindowW(None, w!("Claude")) {
+        if let Ok(hwnd) = FindWindowW(None, title) {
             if !hwnd.0.is_null() {
                 return true;
             }
@@ -231,22 +242,29 @@ fn get_battery_info() -> (u32, bool) {
     }
 }
 
-pub fn poll_system_state() -> DerivedState {
+pub fn poll_system_state(tool: &str) -> DerivedState {
     let (title, proc_name, _pid) = get_foreground_window_info();
     let spotify_playing = detect_spotify_playing();
-    let (cli_count, desktop_running) = count_claude_instances();
+    let (cli_count, desktop_running) = count_tool_instances(tool);
     let (battery_pct, is_charging) = get_battery_info();
     let hour = chrono::Local::now().hour();
 
-    let is_cli_focused = title.contains("Claude Code")
-        || (proc_name.eq_ignore_ascii_case("claude") && title.contains("Code"));
+    let is_focused = match tool {
+        "claude-cli" => {
+            title.contains("Claude Code")
+                || (proc_name.eq_ignore_ascii_case("claude") && title.contains("Code"))
+        }
+        "claude-app" => {
+            proc_name.eq_ignore_ascii_case("claude") && !title.contains("Code")
+        }
+        "opencode" => {
+            title.contains("OC")
+                || (proc_name.eq_ignore_ascii_case("opencode") && !title.is_empty())
+        }
+        _ => false,
+    };
 
-    let is_desktop_focused =
-        proc_name.eq_ignore_ascii_case("claude") && !title.contains("Code");
-
-    let is_claude_active = is_desktop_focused || is_cli_focused;
-
-    let mode = if is_claude_active {
+    let mode = if is_focused {
         "action"
     } else if desktop_running
         || cli_count > 0

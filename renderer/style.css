@@ -1260,3 +1260,43 @@ html, body {
 .stat-row { display: flex; justify-content: space-between; }
 .stat-label { color: #C9B6A9; }
 .stat-value { font-variant-numeric: tabular-nums; font-weight: 600; }
+
+/* ---------- settings ---------- */
+
+.settings-divider {
+  height: 1px;
+  background: rgba(255,255,255,0.1);
+  margin: 8px 0;
+}
+
+.setting-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 4px;
+}
+
+.setting-label {
+  color: #C9B6A9;
+  font-size: 11px;
+}
+
+.setting-row select {
+  background: rgba(255,255,255,0.1);
+  color: #FDF6EC;
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 4px;
+  padding: 2px 4px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  outline: none;
+}
+
+.setting-row select:hover {
+  border-color: rgba(255,255,255,0.3);
+}
+
+.setting-row select:focus {
+  border-color: #E3A98A;
+}

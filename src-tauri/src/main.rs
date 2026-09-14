@@ -17,14 +17,14 @@ static IS_DRAGGING: AtomicBool = AtomicBool::new(false);
 
 // --- Config loading ---
 
-fn load_config() -> serde_json::Value {
-    // Look for config next to the executable, then in the project root
+fn config_path() -> std::path::PathBuf {
     let exe_dir = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.to_path_buf()));
 
     let candidates = [
         exe_dir.as_ref().map(|d| d.join("clawd.config.json")),
+        exe_dir.as_ref().map(|d| d.join("_up_").join("clawd.config.json")),
         Some(std::path::PathBuf::from("clawd.config.json")),
         exe_dir
             .as_ref()
@@ -32,18 +32,41 @@ fn load_config() -> serde_json::Value {
     ];
 
     for candidate in candidates.iter().flatten() {
-        if let Ok(content) = std::fs::read_to_string(candidate) {
-            if let Ok(val) = serde_json::from_str(&content) {
-                return val;
-            }
+        if candidate.exists() {
+            return candidate.clone();
         }
     }
 
-    // Fallback: embedded defaults
+    // No file found — default to exe directory
+    exe_dir.unwrap_or_else(|| std::path::PathBuf::from("clawd.config.json"))
+}
+
+fn load_config() -> serde_json::Value {
+    let path = config_path();
+    if let Ok(content) = std::fs::read_to_string(&path) {
+        if let Ok(val) = serde_json::from_str(&content) {
+            return val;
+        }
+    }
+
     serde_json::json!({
+        "tool": "claude-cli",
+        "clickAction": "claude-cli",
         "poll": { "systemState": 2500, "cursor": 33, "keypress": 80, "tokens": 60000 },
         "window": { "width": 220, "height": 260, "margin": 24 }
     })
+}
+
+fn save_config_value(key: &str, value: &str) -> bool {
+    let path = config_path();
+    let mut config = load_config();
+    config[key] = serde_json::Value::String(value.to_string());
+
+    if let Ok(content) = serde_json::to_string_pretty(&config) {
+        std::fs::write(&path, content).is_ok()
+    } else {
+        false
+    }
 }
 
 // --- State ---
@@ -128,7 +151,7 @@ fn walk_to(window: WebviewWindow, x: f64, y: f64) {
 }
 
 #[tauri::command]
-fn open_claude() {
+fn open_tool() {
     let config = load_config();
     let action = config["clickAction"].as_str().unwrap_or("claude-cli");
 
@@ -142,6 +165,16 @@ fn open_claude() {
         .args(&args)
         .creation_flags(0x08000000) // CREATE_NO_WINDOW
         .spawn();
+}
+
+#[tauri::command]
+fn get_config() -> serde_json::Value {
+    load_config()
+}
+
+#[tauri::command]
+fn save_config(key: String, value: String) -> bool {
+    save_config_value(&key, &value)
 }
 
 #[tauri::command]
@@ -175,7 +208,9 @@ fn main() {
             drag_end,
             drag_move,
             walk_to,
-            open_claude,
+            open_tool,
+            get_config,
+            save_config,
             set_ignore_mouse_events,
         ])
         .setup(move |app| {
@@ -230,7 +265,8 @@ fn main() {
             let system_ms = poll_system;
             std::thread::spawn(move || {
                 loop {
-                    let state = poll_system_state();
+                    let t = load_config()["tool"].as_str().unwrap_or("claude-cli").to_string();
+                    let state = poll_system_state(&t);
                     let _ = handle.emit("system-state", state);
                     std::thread::sleep(std::time::Duration::from_millis(system_ms));
                 }
@@ -259,7 +295,8 @@ fn main() {
             let token_ms = poll_tokens;
             std::thread::spawn(move || {
                 loop {
-                    let stats = get_token_summary();
+                    let t = load_config()["tool"].as_str().unwrap_or("claude-cli").to_string();
+                    let stats = get_token_summary(&t);
                     let _ = handle.emit("token-stats", stats);
                     std::thread::sleep(std::time::Duration::from_millis(token_ms));
                 }

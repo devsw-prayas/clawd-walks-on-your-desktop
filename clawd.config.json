@@ -1,4 +1,5 @@
 {
+  "tool": "claude-cli",
   "clickAction": "claude-cli",
   "window": {
     "width": 220,

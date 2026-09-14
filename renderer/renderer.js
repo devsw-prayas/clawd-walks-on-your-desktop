@@ -92,7 +92,7 @@
     } else if (dragStartX !== 0) {
       invoke('drag_end');
       if (!desktopRunning) {
-        invoke('open_claude');
+        invoke('open_tool');
       }
       triggerHappy();
     }
@@ -670,6 +670,24 @@
   closeBtn.addEventListener('mousedown', (e) => {
     e.stopPropagation();
     appWindow.close();
+  });
+
+  // ---------------- settings ----------------
+
+  const toolSelect = document.getElementById('tool-select');
+  const clickActionSelect = document.getElementById('click-action');
+
+  invoke('get_config').then((config) => {
+    if (config.tool) toolSelect.value = config.tool;
+    if (config.clickAction) clickActionSelect.value = config.clickAction;
+  });
+
+  toolSelect.addEventListener('change', (e) => {
+    invoke('save_config', { key: 'tool', value: e.target.value });
+  });
+
+  clickActionSelect.addEventListener('change', (e) => {
+    invoke('save_config', { key: 'clickAction', value: e.target.value });
   });
 
 })();

@@ -68,7 +68,7 @@ fn start_of_week(d: NaiveDate) -> NaiveDate {
     d - chrono::Duration::days(weekday as i64)
 }
 
-pub fn get_token_summary() -> TokenSummary {
+fn get_claude_token_summary() -> TokenSummary {
     let projects_dir = dirs::home_dir()
         .map(|h| h.join(".claude").join("projects"))
         .unwrap_or_default();
@@ -134,5 +134,94 @@ pub fn get_token_summary() -> TokenSummary {
         all_time,
         sessions_today: sessions_today.len() as u32,
         computed_at: now.timestamp_millis() as u64,
+    }
+}
+
+fn get_opencode_token_summary() -> TokenSummary {
+    let db_path = dirs::data_dir()
+        .map(|d| d.join("opencode").join("opencode.db"))
+        .or_else(|| {
+            dirs::home_dir().map(|h| {
+                #[cfg(target_os = "windows")]
+                { h.join("AppData").join("Roaming").join("opencode").join("opencode.db") }
+                #[cfg(not(target_os = "windows"))]
+                { h.join(".local").join("share").join("opencode").join("opencode.db") }
+            })
+        })
+        .unwrap_or_default();
+
+    let now = Local::now();
+    let today_str = now.format("%Y-%m-%d").to_string();
+    let week_start = start_of_week(now.date_naive());
+    let week_str = week_start.format("%Y-%m-%d").to_string();
+
+    let mut today: u64 = 0;
+    let mut week: u64 = 0;
+    let mut all_time: u64 = 0;
+    let mut sessions_today: HashSet<String> = HashSet::new();
+
+    let Ok(conn) = rusqlite::Connection::open(&db_path) else {
+        return TokenSummary {
+            today: 0,
+            week: 0,
+            all_time: 0,
+            sessions_today: 0,
+            computed_at: now.timestamp_millis() as u64,
+        };
+    };
+
+    // Try to read token usage from session table
+    // OpenCode stores tokens in the session or message tables
+    let query = "SELECT token_count, session_id, created_at FROM session_message WHERE token_count > 0";
+
+    if let Ok(mut stmt) = conn.prepare(query) {
+        if let Ok(rows) = stmt.query_map([], |row| {
+            let tokens: i64 = row.get(0).unwrap_or(0);
+            let session_id: String = row.get(1).unwrap_or_default();
+            let created_at: String = row.get(2).unwrap_or_default();
+            Ok((tokens as u64, session_id, created_at))
+        }) {
+            for row in rows.flatten() {
+                let (tokens, session_id, created_at) = row;
+                all_time += tokens;
+
+                if created_at.starts_with(&today_str) {
+                    today += tokens;
+                    sessions_today.insert(session_id);
+                } else if created_at >= week_str {
+                    week += tokens;
+                }
+            }
+        }
+    }
+
+    // Fallback: try token-usage.json plugin file
+    if all_time == 0 {
+        let token_file = dirs::home_dir()
+            .map(|h| h.join(".opencode").join("token-usage.json"))
+            .unwrap_or_default();
+
+        if let Ok(content) = fs::read_to_string(&token_file) {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(total) = val.get("totalTokens").and_then(|v| v.as_u64()) {
+                    all_time = total;
+                }
+            }
+        }
+    }
+
+    TokenSummary {
+        today,
+        week,
+        all_time,
+        sessions_today: sessions_today.len() as u32,
+        computed_at: now.timestamp_millis() as u64,
+    }
+}
+
+pub fn get_token_summary(tool: &str) -> TokenSummary {
+    match tool {
+        "opencode" => get_opencode_token_summary(),
+        _ => get_claude_token_summary(),
     }
 }

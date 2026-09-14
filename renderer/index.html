@@ -16,6 +16,25 @@
       <div class="stat-row"><span class="stat-label">this week</span><span id="stat-week" class="stat-value">–</span></div>
       <div class="stat-row"><span class="stat-label">all time</span><span id="stat-all" class="stat-value">–</span></div>
       <div class="stat-row"><span class="stat-label">sessions today</span><span id="stat-sessions" class="stat-value">–</span></div>
+
+      <div class="settings-divider"></div>
+
+      <div class="setting-row">
+        <span class="setting-label">tool</span>
+        <select id="tool-select" class="interactive">
+          <option value="claude-cli">Claude CLI</option>
+          <option value="claude-app">Claude App</option>
+          <option value="opencode">OpenCode</option>
+        </select>
+      </div>
+      <div class="setting-row">
+        <span class="setting-label">click</span>
+        <select id="click-action" class="interactive">
+          <option value="claude-cli">Claude CLI</option>
+          <option value="claude-app">Claude App</option>
+          <option value="opencode">OpenCode</option>
+        </select>
+      </div>
     </div>
 
     <button id="stats-toggle" class="interactive" title="Token stats">◔</button>
