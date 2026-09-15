@@ -137,59 +137,109 @@ fn get_claude_token_summary() -> TokenSummary {
     }
 }
 
+fn opencode_db_path() -> PathBuf {
+    let mut candidates = Vec::new();
+    if let Ok(xdg) = std::env::var("XDG_DATA_HOME") {
+        candidates.push(PathBuf::from(xdg).join("opencode").join("opencode.db"));
+    }
+    if let Some(home) = dirs::home_dir() {
+        candidates.push(
+            home.join(".local")
+                .join("share")
+                .join("opencode")
+                .join("opencode.db"),
+        );
+    }
+    if let Some(data) = dirs::data_dir() {
+        candidates.push(data.join("opencode").join("opencode.db"));
+    }
+    candidates.into_iter().find(|p| p.is_file()).unwrap_or_default()
+}
+
 fn get_opencode_token_summary() -> TokenSummary {
-    let db_path = dirs::data_dir()
-        .map(|d| d.join("opencode").join("opencode.db"))
-        .or_else(|| {
-            dirs::home_dir().map(|h| {
-                #[cfg(target_os = "windows")]
-                { h.join("AppData").join("Roaming").join("opencode").join("opencode.db") }
-                #[cfg(not(target_os = "windows"))]
-                { h.join(".local").join("share").join("opencode").join("opencode.db") }
-            })
-        })
-        .unwrap_or_default();
+    let db_path = opencode_db_path();
 
     let now = Local::now();
-    let today_str = now.format("%Y-%m-%d").to_string();
-    let week_start = start_of_week(now.date_naive());
-    let week_str = week_start.format("%Y-%m-%d").to_string();
+    let today_start = now.date_naive();
+    let week_start = start_of_week(today_start);
 
     let mut today: u64 = 0;
     let mut week: u64 = 0;
     let mut all_time: u64 = 0;
     let mut sessions_today: HashSet<String> = HashSet::new();
 
-    let Ok(conn) = rusqlite::Connection::open(&db_path) else {
-        return TokenSummary {
-            today: 0,
-            week: 0,
-            all_time: 0,
-            sessions_today: 0,
-            computed_at: now.timestamp_millis() as u64,
-        };
+    let empty = TokenSummary {
+        today: 0,
+        week: 0,
+        all_time: 0,
+        sessions_today: 0,
+        computed_at: now.timestamp_millis() as u64,
+    };
+    if db_path.as_os_str().is_empty() {
+        return empty;
+    }
+
+    // Read-only: opencode usually holds a write lock while running.
+    let Ok(conn) = rusqlite::Connection::open_with_flags(
+        &db_path,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    ) else {
+        return empty;
     };
 
-    // Try to read token usage from session table
-    // OpenCode stores tokens in the session or message tables
-    let query = "SELECT token_count, session_id, created_at FROM session_message WHERE token_count > 0";
+    // Tokens live as JSON in message.data:
+    // {"tokens":{"input":N,"output":N,"reasoning":N,"cache":{"read":N,"write":N}},
+    //  "time":{"created":<unix ms>,"completed":<unix ms>}}
+    // time_created column is the same unix-ms fallback.
+    let query = "SELECT session_id, time_created, data FROM message";
 
     if let Ok(mut stmt) = conn.prepare(query) {
         if let Ok(rows) = stmt.query_map([], |row| {
-            let tokens: i64 = row.get(0).unwrap_or(0);
-            let session_id: String = row.get(1).unwrap_or_default();
-            let created_at: String = row.get(2).unwrap_or_default();
-            Ok((tokens as u64, session_id, created_at))
+            let session_id: String = row.get(0).unwrap_or_default();
+            let time_created: i64 = row.get(1).unwrap_or(0);
+            let data: String = row.get(2).unwrap_or_default();
+            Ok((session_id, time_created, data))
         }) {
             for row in rows.flatten() {
-                let (tokens, session_id, created_at) = row;
+                let (session_id, time_created, data) = row;
+                let Ok(val) = serde_json::from_str::<serde_json::Value>(&data) else {
+                    continue;
+                };
+                let tokens_obj = match val.get("tokens") {
+                    Some(t) => t,
+                    None => continue,
+                };
+                let num = |v: &serde_json::Value, key: &str| {
+                    v.get(key).and_then(|n| n.as_u64()).unwrap_or(0)
+                };
+                let cache = tokens_obj.get("cache");
+                let tokens = num(tokens_obj, "total").max(
+                    num(tokens_obj, "input")
+                        + num(tokens_obj, "output")
+                        + num(tokens_obj, "reasoning")
+                        + cache.map(|c| num(c, "read") + num(c, "write")).unwrap_or(0),
+                );
+                if tokens == 0 {
+                    continue;
+                }
+
                 all_time += tokens;
 
-                if created_at.starts_with(&today_str) {
-                    today += tokens;
-                    sessions_today.insert(session_id);
-                } else if created_at >= week_str {
-                    week += tokens;
+                let created_ms = val
+                    .get("time")
+                    .and_then(|t| t.get("created"))
+                    .and_then(|n| n.as_i64())
+                    .unwrap_or(time_created);
+                let ts_date = chrono::DateTime::from_timestamp_millis(created_ms)
+                    .map(|dt| dt.with_timezone(&Local).date_naive());
+                if let Some(ts_date) = ts_date {
+                    if ts_date >= today_start {
+                        today += tokens;
+                        sessions_today.insert(session_id);
+                    }
+                    if ts_date >= week_start {
+                        week += tokens;
+                    }
                 }
             }
         }
