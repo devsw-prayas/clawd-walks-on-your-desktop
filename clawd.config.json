@@ -1,4 +1,5 @@
 {
+  "clickAction": "claude-cli",
   "window": {
     "width": 220,
     "height": 260,

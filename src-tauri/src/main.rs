@@ -129,8 +129,17 @@ fn walk_to(window: WebviewWindow, x: f64, y: f64) {
 
 #[tauri::command]
 fn open_claude() {
-    let _ = std::process::Command::new("cmd")
-        .args(["/C", "start", "claude:"])
+    let config = load_config();
+    let action = config["clickAction"].as_str().unwrap_or("claude-cli");
+
+    let (program, args) = match action {
+        "claude-app" => ("cmd", vec!["/C", "start", "claude:"]),
+        "opencode" => ("cmd", vec!["/C", "start", "cmd", "/k", "opencode"]),
+        _ => ("cmd", vec!["/C", "start", "cmd", "/k", "claude"]),
+    };
+
+    let _ = std::process::Command::new(program)
+        .args(&args)
         .creation_flags(0x08000000) // CREATE_NO_WINDOW
         .spawn();
 }
