@@ -14,6 +14,7 @@ use std::sync::Mutex;
 use tauri::{Emitter, Manager, PhysicalPosition, WebviewWindow};
 
 static IS_DRAGGING: AtomicBool = AtomicBool::new(false);
+static DRAG_OFFSET: Mutex<Option<(f64, f64)>> = Mutex::new(None);
 
 // --- Config loading ---
 
@@ -71,10 +72,6 @@ fn save_config_value(key: &str, value: &str) -> bool {
 
 // --- State ---
 
-struct AppState {
-    drag_offset: Mutex<Option<(f64, f64)>>,
-}
-
 // --- Cursor position via Win32 ---
 
 #[derive(Serialize, Clone)]
@@ -119,30 +116,20 @@ fn get_screen_bounds(window: WebviewWindow) -> serde_json::Value {
 }
 
 #[tauri::command]
-fn drag_start(state: tauri::State<AppState>, offset_x: f64, offset_y: f64) {
-    *state.drag_offset.lock().unwrap() = Some((offset_x, offset_y));
+fn drag_start(offset_x: f64, offset_y: f64) {
+    *DRAG_OFFSET.lock().unwrap() = Some((offset_x, offset_y));
     IS_DRAGGING.store(true, Ordering::Relaxed);
 }
 
 #[tauri::command]
-fn drag_end(state: tauri::State<AppState>) {
-    *state.drag_offset.lock().unwrap() = None;
+fn drag_end() {
+    *DRAG_OFFSET.lock().unwrap() = None;
     IS_DRAGGING.store(false, Ordering::Relaxed);
 }
 
 #[tauri::command]
-fn drag_move(
-    window: WebviewWindow,
-    state: tauri::State<AppState>,
-    screen_x: f64,
-    screen_y: f64,
-) {
-    if let Some((ox, oy)) = *state.drag_offset.lock().unwrap() {
-        let _ = window.set_position(PhysicalPosition::new(
-            (screen_x - ox) as i32,
-            (screen_y - oy) as i32,
-        ));
-    }
+fn drag_move() {
+    // No-op: drag handled in cursor loop now
 }
 
 #[tauri::command]
@@ -198,9 +185,7 @@ fn main() {
     let win_margin = config["window"]["margin"].as_i64().unwrap_or(24) as i32;
 
     tauri::Builder::default()
-        .manage(AppState {
-            drag_offset: Mutex::new(None),
-        })
+        .plugin(tauri_plugin_autostart::Builder::new().build())
         .invoke_handler(tauri::generate_handler![
             get_window_bounds,
             get_screen_bounds,
@@ -231,7 +216,7 @@ fn main() {
             // Start click-through (Rust cursor loop toggles it)
             let _ = window.set_ignore_cursor_events(true);
 
-            // --- Cursor tracking loop (also manages click-through) ---
+            // --- Cursor tracking loop (also manages click-through and drag) ---
             let cursor_window = window.clone();
             let handle = app.handle().clone();
             let cursor_ms = poll_cursor;
@@ -241,7 +226,16 @@ fn main() {
                     let pos = get_cursor_position();
                     let _ = handle.emit("cursor-pos", &pos);
 
-                    if !IS_DRAGGING.load(Ordering::Relaxed) {
+                    if IS_DRAGGING.load(Ordering::Relaxed) {
+                        // Drag: move window directly, zero IPC
+                        if let Some((ox, oy)) = *DRAG_OFFSET.lock().unwrap() {
+                            let _ = cursor_window.set_position(PhysicalPosition::new(
+                                (pos.x as f64 - ox) as i32,
+                                (pos.y as f64 - oy) as i32,
+                            ));
+                        }
+                    } else {
+                        // Click-through toggle
                         if let (Ok(wp), Ok(ws)) =
                             (cursor_window.outer_position(), cursor_window.outer_size())
                         {

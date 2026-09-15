@@ -3,6 +3,7 @@
   const { invoke } = window.__TAURI__.core;
   const { listen } = window.__TAURI__.event;
   const { getCurrentWebviewWindow } = window.__TAURI__.webviewWindow;
+  const autostart = window.__TAURI__?.autostart;
 
   const appWindow = getCurrentWebviewWindow();
 
@@ -73,17 +74,16 @@
 
   window.addEventListener('mousemove', (e) => {
     if (dragStartX === 0 && dragStartY === 0) return;
+    if (dragging) return;
 
     const moved = Math.hypot(e.screenX - dragStartX, e.screenY - dragStartY);
     if (moved > 4) {
       dragging = true;
       clawd.classList.add('dragging');
-      invoke('drag_move', { screenX: e.screenX, screenY: e.screenY });
-      invoke('get_window_bounds').then((b) => { winBounds = b; });
     }
   });
 
-  window.addEventListener('mouseup', () => {
+  window.addEventListener('mouseup', (e) => {
     if (dragging) {
       dragging = false;
       clawd.classList.remove('dragging');
@@ -689,5 +689,34 @@
   clickActionSelect.addEventListener('change', (e) => {
     invoke('save_config', { key: 'clickAction', value: e.target.value });
   });
+
+  // startup toggle
+  const startupToggle = document.getElementById('startup-toggle');
+
+  if (autostart) {
+    autostart.isEnabled().then((active) => {
+      startupToggle.checked = active;
+    }).catch(() => {});
+
+    startupToggle.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        startupToggle.checked = !startupToggle.checked;
+        startupToggle.dispatchEvent(new Event('change'));
+      }
+    });
+
+    startupToggle.addEventListener('change', async () => {
+      try {
+        if (startupToggle.checked) {
+          await autostart.enable();
+        } else {
+          await autostart.disable();
+        }
+      } catch (e) {
+        console.error('autostart error:', e);
+      }
+    });
+  }
 
 })();

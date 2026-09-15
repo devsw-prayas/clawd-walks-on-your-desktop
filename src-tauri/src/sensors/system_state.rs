@@ -258,8 +258,8 @@ pub fn poll_system_state(tool: &str) -> DerivedState {
             proc_name.eq_ignore_ascii_case("claude") && !title.contains("Code")
         }
         "opencode" => {
-            title.contains("OC")
-                || (proc_name.eq_ignore_ascii_case("opencode") && !title.is_empty())
+            let t = title.to_lowercase();
+            t.contains("opencode") || proc_name.eq_ignore_ascii_case("opencode")
         }
         _ => false,
     };

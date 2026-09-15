@@ -1282,7 +1282,7 @@ html, body {
 }
 
 .setting-row select {
-  background: rgba(255,255,255,0.1);
+  background: rgba(30, 24, 20, 0.88);
   color: #FDF6EC;
   border: 1px solid rgba(255,255,255,0.15);
   border-radius: 4px;
@@ -1293,10 +1293,66 @@ html, body {
   outline: none;
 }
 
+.setting-row select option {
+  background: rgba(30, 24, 20, 0.95);
+  color: #FDF6EC;
+}
+
 .setting-row select:hover {
   border-color: rgba(255,255,255,0.3);
 }
 
 .setting-row select:focus {
   border-color: #E3A98A;
+}
+
+/* toggle switch */
+.toggle {
+  position: relative;
+  display: inline-block;
+  width: 32px;
+  height: 16px;
+}
+
+.toggle input {
+  position: absolute;
+  opacity: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  cursor: pointer;
+}
+
+.toggle-slider {
+  position: absolute;
+  inset: 0;
+  background: rgba(255,255,255,0.15);
+  border-radius: 16px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.toggle-slider::before {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  left: 2px;
+  bottom: 2px;
+  background: #FDF6EC;
+  border-radius: 50%;
+  transition: transform 0.2s;
+}
+
+.toggle input:checked + .toggle-slider {
+  background: #E3A98A;
+}
+
+.toggle input:checked + .toggle-slider::before {
+  transform: translateX(16px);
+}
+
+.toggle input:focus-visible + .toggle-slider {
+  outline: 1px solid #E3A98A;
+  outline-offset: 2px;
 }
