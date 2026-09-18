@@ -2,3 +2,5 @@ node_modules/
 dist/
 .claude/
 *.log
+src-tauri/target/
+src-tauri/gen/
