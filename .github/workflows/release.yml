@@ -31,19 +31,24 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            ~/.cargo/bin/tauri.exe
           key: rust-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: rust-${{ runner.os }}-
+
+      - name: Cache Tauri CLI
+        uses: actions/cache@v4
+        with:
+          path: ~/.cargo/bin/cargo-tauri.exe
+          key: tauri-cli-v2.11.5-${{ runner.os }}
 
       - name: Install Tauri CLI
         shell: pwsh
         run: |
-          if (-not (Test-Path "$env:USERPROFILE\.cargo\bin\tauri.exe")) {
+          if (-not (Test-Path "$env:USERPROFILE\.cargo\bin\cargo-tauri.exe")) {
             cargo install tauri-cli --version "^2" --locked
           }
 
       - name: Build Tauri app
-        run: tauri build
+        run: cargo tauri build
 
       - name: Get version from tauri.conf.json
         id: version
