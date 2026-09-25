@@ -31,20 +31,19 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
+            ~/.cargo/bin/tauri.exe
           key: rust-${{ runner.os }}-${{ hashFiles('src-tauri/Cargo.lock') }}
           restore-keys: rust-${{ runner.os }}-
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-
-      - name: Install frontend dependencies
-        run: npm ci
+      - name: Install Tauri CLI
+        shell: pwsh
+        run: |
+          if (-not (Test-Path "$env:USERPROFILE\.cargo\bin\tauri.exe")) {
+            cargo install tauri-cli --version "^2" --locked
+          }
 
       - name: Build Tauri app
-        run: npx tauri build
+        run: tauri build
 
       - name: Get version from tauri.conf.json
         id: version
